@@ -14,11 +14,11 @@ interface Props {
 }
 
 function getGridClass(count: number): string {
-  if (count === 1) return 'grid-cols-1 grid-rows-1'
-  if (count === 2) return 'grid-cols-2 grid-rows-1'
-  if (count <= 4) return 'grid-cols-2 grid-rows-2'
-  if (count <= 6) return 'grid-cols-3 grid-rows-2'
-  return 'grid-cols-4'
+  if (count === 1) return 'grid-cols-1'
+  if (count === 2) return 'grid-cols-1 sm:grid-cols-2'
+  if (count <= 4) return 'grid-cols-1 sm:grid-cols-2'
+  if (count <= 6) return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+  return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
 }
 
 export default function RoomClient({ roomId }: Props) {
@@ -34,11 +34,12 @@ export default function RoomClient({ roomId }: Props) {
     messages,
     isMuted,
     isVideoOff,
-    isScreenSharing,
+    /* isScreenSharing, */
     mediaError,
+    socketError,
     toggleMute,
     toggleVideo,
-    toggleScreenShare,
+    /* toggleScreenShare, */
     sendMessage,
     leaveRoom,
   } = useWebRTC(roomId, userName, joined)
@@ -90,7 +91,7 @@ export default function RoomClient({ roomId }: Props) {
   const gridClass = getGridClass(totalTiles)
 
   return (
-    <div className="flex h-screen bg-zinc-950 overflow-hidden">
+    <div className="relative flex h-screen bg-zinc-950 overflow-hidden">
       {/* Main call area */}
       <div className="flex flex-col flex-1 min-w-0">
 
@@ -117,6 +118,13 @@ export default function RoomClient({ roomId }: Props) {
           <div className="w-24" />
         </div>
 
+        {/* Socket error banner */}
+        {socketError && (
+          <div className="px-4 py-2 bg-red-600/10 border-b border-red-600/20 shrink-0">
+            <p className="text-red-400 text-xs text-center">{socketError}</p>
+          </div>
+        )}
+
         {/* Video grid */}
         <div className={`flex-1 min-h-0 p-3 grid gap-3 auto-rows-[1fr] ${gridClass}`}>
           <VideoTile
@@ -141,12 +149,12 @@ export default function RoomClient({ roomId }: Props) {
         <Controls
           isMuted={isMuted}
           isVideoOff={isVideoOff}
-          isScreenSharing={isScreenSharing}
+          /* isScreenSharing={isScreenSharing} */
           isChatOpen={isChatOpen}
           participantCount={participantList.length}
           onToggleMute={toggleMute}
           onToggleVideo={toggleVideo}
-          onToggleScreenShare={toggleScreenShare}
+          /* onToggleScreenShare={toggleScreenShare} */
           onToggleChat={() => setIsChatOpen((v) => !v)}
           onLeave={handleLeave}
         />
@@ -154,11 +162,16 @@ export default function RoomClient({ roomId }: Props) {
 
       {/* Chat panel */}
       {isChatOpen && (
-        <ChatPanel
-          messages={messages}
-          onSend={sendMessage}
-          onClose={() => setIsChatOpen(false)}
-        />
+        <div className="absolute inset-0 z-50 sm:static sm:inset-auto sm:z-auto">
+          <div className="absolute inset-0 bg-black/50 sm:hidden" onClick={() => setIsChatOpen(false)} />
+          <div className="absolute right-0 top-0 bottom-0 w-full max-w-sm sm:max-w-none sm:relative sm:w-80 sm:shrink-0 sm:h-full">
+            <ChatPanel
+              messages={messages}
+              onSend={sendMessage}
+              onClose={() => setIsChatOpen(false)}
+            />
+          </div>
+        </div>
       )}
     </div>
   )

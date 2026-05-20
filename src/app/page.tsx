@@ -2,12 +2,12 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Video, ArrowRight, Monitor, MessageSquare, Mic } from 'lucide-react'
+import { Video, ArrowRight, /* Monitor, */ MessageSquare, Mic } from 'lucide-react'
 
 const FEATURES = [
   { icon: <Video className="w-4 h-4" />, label: 'HD Video' },
   { icon: <Mic className="w-4 h-4" />, label: 'Audio Only' },
-  { icon: <Monitor className="w-4 h-4" />, label: 'Screen Share' },
+  /* { icon: <Monitor className="w-4 h-4" />, label: 'Screen Share' }, */
   { icon: <MessageSquare className="w-4 h-4" />, label: 'Live Chat' },
 ]
 

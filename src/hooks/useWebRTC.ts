@@ -11,8 +11,8 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map())
   const peerNamesRef = useRef<Map<string, string>>(new Map())
-  const screenTrackRef = useRef<MediaStreamTrack | null>(null)
-  const isScreenSharingRef = useRef(false)
+  /* const screenTrackRef = useRef<MediaStreamTrack | null>(null) */
+  /* const isScreenSharingRef = useRef(false) */
   const userNameRef = useRef(userName)
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
@@ -20,8 +20,9 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoOff, setIsVideoOff] = useState(false)
-  const [isScreenSharing, setIsScreenSharing] = useState(false)
+  /* const [isScreenSharing, setIsScreenSharing] = useState(false) */
   const [mediaError, setMediaError] = useState<string | null>(null)
+  const [socketError, setSocketError] = useState<string | null>(null)
 
   useEffect(() => { userNameRef.current = userName }, [userName])
 
@@ -41,6 +42,7 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
     }
   }, [])
 
+  /* Screen share — disabled for now
   const stopScreenShare = useCallback(async () => {
     if (!screenTrackRef.current || !localStreamRef.current) return
     try {
@@ -89,26 +91,27 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
       }
     }
   }, [stopScreenShare])
+  */
 
   const sendMessage = useCallback((text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
-    const payload = JSON.stringify({ text: trimmed, ts: Date.now() })
-    dataChannelsRef.current.forEach((channel) => {
-      if (channel.readyState === 'open') channel.send(payload)
+    const msg = {
+      id: crypto.randomUUID(),
+      socketId: 'local',
+      userName: userNameRef.current,
+      text: trimmed,
+      timestamp: Date.now(),
+      isOwn: true,
+    }
+    setMessages((prev) => [...prev, msg])
+    socketRef.current?.emit('chat-message', {
+      roomId,
+      text: trimmed,
+      userName: userNameRef.current,
+      ts: Date.now(),
     })
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        socketId: 'local',
-        userName: userNameRef.current,
-        text: trimmed,
-        timestamp: Date.now(),
-        isOwn: true,
-      },
-    ])
-  }, [])
+  }, [roomId])
 
   const leaveRoom = useCallback(() => {
     if (socketRef.current) {
@@ -136,6 +139,9 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
     const names = peerNamesRef.current
 
     const makePeer = (socketId: string, peerName: string): RTCPeerConnection => {
+      const existing = pcs.get(socketId)
+      if (existing) return existing
+
       names.set(socketId, peerName)
 
       const pc = new RTCPeerConnection(RTC_CONFIG)
@@ -145,9 +151,16 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
       )
 
       pc.ontrack = ({ streams: [s] }) => {
-        setParticipants((prev) =>
-          new Map(prev).set(socketId, { socketId, userName: peerName, stream: s })
-        )
+        if (!s) return
+        setParticipants((prev) => {
+          const current = prev.get(socketId)
+          const displayName = names.get(socketId) ?? peerName
+          return new Map(prev).set(socketId, {
+            socketId,
+            userName: current?.userName ?? displayName,
+            stream: s,
+          })
+        })
       }
 
       pc.onicecandidate = ({ candidate }) => {
@@ -155,7 +168,8 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
       }
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'failed') {
+        console.log(`[${socketId}] connectionState: ${pc.connectionState}`)
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           pc.close()
           pcs.delete(socketId)
           dcs.delete(socketId)
@@ -165,6 +179,10 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
             return next
           })
         }
+      }
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[${socketId}] iceConnectionState: ${pc.iceConnectionState}`)
       }
 
       const handleMsg = (e: MessageEvent) => {
@@ -214,6 +232,7 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
       setLocalStream(stream)
 
       const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin
+      console.log('[Socket] connecting to:', socketUrl)
       const socket = io(socketUrl, {
         transports: ['websocket', 'polling'],
         upgrade: true,
@@ -227,7 +246,18 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
       window.addEventListener('beforeunload', handleUnload)
 
       socket.on('connect', () => {
+        console.log('[Socket] connected:', socket.id)
+        setSocketError(null)
         socket.emit('join-room', { roomId, userName })
+      })
+
+      socket.on('connect_error', (err: Error) => {
+        console.error('[Socket] connect_error:', err.message)
+        setSocketError('Cannot connect to signaling server. Check your backend URL (NEXT_PUBLIC_SOCKET_URL).')
+      })
+
+      socket.on('disconnect', (reason: string) => {
+        console.warn('[Socket] disconnected:', reason)
       })
 
       socket.on(
@@ -241,10 +271,14 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
                 stream: null,
               })
             )
-            const pc = makePeer(u.socketId, u.userName)
-            const offer = await pc.createOffer()
-            await pc.setLocalDescription(offer)
-            socket.emit('offer', { to: u.socketId, offer })
+            try {
+              const pc = makePeer(u.socketId, u.userName)
+              const offer = await pc.createOffer()
+              await pc.setLocalDescription(offer)
+              socket.emit('offer', { to: u.socketId, offer })
+            } catch (err) {
+              console.error('[room-users] offer failed for', u.socketId, err)
+            }
           }
         }
       )
@@ -265,10 +299,14 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
           const peerName = names.get(from) ?? 'User'
           let pc = pcs.get(from)
           if (!pc) pc = makePeer(from, peerName)
-          await pc.setRemoteDescription(offer)
-          const answer = await pc.createAnswer()
-          await pc.setLocalDescription(answer)
-          socket.emit('answer', { to: from, answer })
+          try {
+            await pc.setRemoteDescription(offer)
+            const answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            socket.emit('answer', { to: from, answer })
+          } catch (err) {
+            console.error('[offer] failed for', from, err)
+          }
         }
       )
 
@@ -276,7 +314,12 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
         'answer',
         async ({ from, answer }: { from: string; answer: RTCSessionDescriptionInit }) => {
           const pc = pcs.get(from)
-          if (pc) await pc.setRemoteDescription(answer)
+          if (!pc) return
+          try {
+            await pc.setRemoteDescription(answer)
+          } catch (err) {
+            console.error('[answer] failed for', from, err)
+          }
         }
       )
 
@@ -304,6 +347,13 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
           const next = new Map(prev)
           next.delete(socketId)
           return next
+        })
+      })
+
+      socket.on('chat-message', (msg: { id: string; socketId: string; userName: string; text: string; timestamp: number }) => {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev
+          return [...prev, { ...msg, isOwn: false }]
         })
       })
 
@@ -338,11 +388,12 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
     messages,
     isMuted,
     isVideoOff,
-    isScreenSharing,
+    /* isScreenSharing, */
     mediaError,
+    socketError,
     toggleMute,
     toggleVideo,
-    toggleScreenShare,
+    /* toggleScreenShare, */
     sendMessage,
     leaveRoom,
   }
