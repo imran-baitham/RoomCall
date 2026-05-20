@@ -214,7 +214,13 @@ export function useWebRTC(roomId: string, userName: string, enabled: boolean) {
       setLocalStream(stream)
 
       const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin
-      const socket = io(socketUrl)
+      const socket = io(socketUrl, {
+        transports: ['websocket', 'polling'],
+        upgrade: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 20000,
+      })
       socketRef.current = socket
 
       handleUnload = () => socket.disconnect()
